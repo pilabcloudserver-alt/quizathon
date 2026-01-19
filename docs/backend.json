@@ -1,0 +1,201 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user of the QuizMaster Pro application.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the User entity."
+        },
+        "email": {
+          "type": "string",
+          "description": "Email address of the user.",
+          "format": "email"
+        },
+        "name": {
+          "type": "string",
+          "description": "Full name of the user."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Timestamp indicating when the user account was created.",
+          "format": "date-time"
+        },
+        "role": {
+          "type": "string",
+          "description": "The role of the user.",
+          "enum": [
+            "admin",
+            "student"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "createdAt"
+      ]
+    },
+    "Question": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Question",
+      "type": "object",
+      "description": "Represents a question in the quiz, including its text and associated data.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the Question entity."
+        },
+        "question": {
+          "type": "string",
+          "description": "The text of the question."
+        },
+        "options": {
+          "type": "array",
+          "description": "Array of possible answer options for the question.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "correctAnswer": {
+          "type": "string",
+          "description": "The correct answer string."
+        },
+        "difficulty": {
+          "type": "string",
+          "description": "The difficulty level of the question (e.g., Easy, Medium, Hard)."
+        },
+        "topic": {
+          "type": "string",
+          "description": "Topic or category the question belongs to."
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "options",
+        "correctAnswer",
+        "difficulty",
+        "topic"
+      ]
+    },
+    "QuizSession": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "QuizSession",
+      "type": "object",
+      "description": "Represents a single quiz session for a user.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the QuizSession entity."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N QuizSession)"
+        },
+        "startTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the quiz session started.",
+          "format": "date-time"
+        },
+        "endTime": {
+          "type": "string",
+          "description": "Timestamp indicating when the quiz session ended.",
+          "format": "date-time"
+        },
+        "score": {
+          "type": "number",
+          "description": "The user's score for the quiz session."
+        },
+        "questionIds": {
+          "type": "array",
+          "description": "References to Questions. (Relationship: QuizSession 1:N Question)",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "startTime",
+        "endTime",
+        "score",
+        "questionIds"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ],
+    "customClaims": {
+      "admin": {
+        "type": "boolean",
+        "description": "Indicates if the user has administrative privileges."
+      }
+    }
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user profiles. Path-based ownership ensures that only the user can access their own profile data.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/quizSessions/{quizSessionId}",
+        "definition": {
+          "entityName": "QuizSession",
+          "schema": {
+            "$ref": "#/backend/entities/QuizSession"
+          },
+          "description": "Stores quiz sessions for each user.  Path-based ownership: Only the user can access their quiz sessions.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            },
+            {
+              "name": "quizSessionId",
+              "description": "The unique identifier of the quiz session."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/questions/{questionId}",
+        "definition": {
+          "entityName": "Question",
+          "schema": {
+            "$ref": "#/backend/entities/Question"
+          },
+          "description": "Stores quiz questions. Write access is restricted to the admin user ('admin@gmail.com'), while read access is available to all authenticated users.",
+          "params": [
+            {
+              "name": "questionId",
+              "description": "The unique identifier of the question."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to support a quiz application where users can take quizzes composed of questions fetched from an Excel file.  The structure emphasizes authorization independence, clarity, and scalability. User data and quiz sessions are stored in separate collections, allowing for efficient data retrieval and security rule implementation. Questions imported from Excel files are stored in a dedicated collection, and metadata about those uploads is tracked to manage updates and track provenance. This setup supports future AI-driven difficulty adjustments by allowing easy access to question difficulty levels.\n\n**Authorization Independence and QAPs:**\n\n*   **Users Collection:**  Access is controlled at the user level. Each user can only access their own profile data using path-based rules (`/users/{userId}`).\n*   **QuizSessions Collection:**  Quiz sessions are stored as subcollections of user documents (`/users/{userId}/quizSessions/{quizSessionId}`). This allows efficient retrieval of quiz sessions for a specific user. Ownership is implicit in the path, providing a simple and secure way to manage access.\n*   **Questions Collection:** Questions are stored in a single collection. Security rules restrict write access to admin users while allowing read access to all authenticated users. This segregation of data with different access needs ensures that listing operations can be performed securely."
+  }
+}

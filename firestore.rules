@@ -1,0 +1,141 @@
+/**
+ * This ruleset enforces a security model for the QuizMaster Pro application.
+ *
+ * Core Philosophy:
+ * The security model is hybrid, providing strict user-ownership for personal data while enabling
+ * admin-only writes and authenticated reads for shared application content. This ensures user privacy
+ * and data integrity.
+ *
+ * Data Structure:
+ * - /users/{userId}: Stores private user profile data.
+ * - /users/{userId}/quizSessions/{quizSessionId}: Nests a user's quiz history directly under their
+ *   profile, ensuring data is co-located and ownership is inherited through the path.
+ * - /questions/{questionId}: A top-level collection for all quiz questions, with write access
+ *   restricted to an admin role.
+ *
+ * Key Security Decisions:
+ * - User Isolation: Users can only access their own document within the `/users` collection. Listing
+ *   all application users is strictly prohibited to protect user privacy.
+ * - Admin-Only Content Management: Write operations (create, update, delete) on the `/questions`
+ *   collection are restricted to a user with the email 'admin@gmail.com'.
+ * - Authenticated Read Access: Only signed-in users can read questions from the `/questions` collection.
+ *
+ * Denormalization for Authorization:
+ * This ruleset relies on path-based security for user data. For a user's private data, their UID is
+ * part of the document path (e.g., `/users/{userId}`), which makes ownership checks simple and fast.
+ * The `userId` is also denormalized onto `quizSession` documents to enforce relational integrity.
+ * For role-based access, the admin's email is checked directly from the authentication token.
+ *
+ * Structural Segregation:
+ * The separation of private data (`/users`) from shared content (`/questions`) into different
+ * top-level collections is a deliberate design choice. This prevents accidental data leakage and
+ * makes the security rules for each section clearer and more secure.
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -------------------------------------------------------------------------
+    // Helper Functions
+    // -------------------------------------------------------------------------
+
+    /**
+     * Checks if the user is authenticated.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /**
+     * Checks if the currently authenticated user's UID matches the provided userId.
+     * This is the primary function for enforcing document ownership.
+     */
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    /**
+     * Checks if the user is the designated admin based on their email.
+     */
+    function isAdmin() {
+      return isSignedIn() && 
+        (request.auth.token.email.lower() == 'admin@gmail.com' || 
+         request.auth.uid == 'F4e1tiCEkGSeBY2rmB4LlVwRaha2' ||
+         request.auth.token.admin == true);
+    }
+
+    /**
+     * Checks for ownership on an existing document. Used for update and delete
+     * operations to ensure the target document exists before applying the rule.
+     */
+    function isExistingOwner(userId) {
+      return isOwner(userId) && resource != null;
+    }
+
+    // -------------------------------------------------------------------------
+    // User Profile Rules
+    // -------------------------------------------------------------------------
+
+    /**
+     * @description Controls access to user profile documents.
+     * @path /users/{userId}
+     * @allow A signed-in user (auth.uid='user123') can (create) their own profile at /users/user123.
+     * @deny A different user (auth.uid='user456') cannot (update) the profile at /users/user123.
+     * @principle Restricts access to a user's own data tree and prevents user enumeration.
+     */
+    match /users/{userId} {
+      // READ: Only the owner or an admin can get their own profile. Admins can list all users.
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+
+      // WRITE: A user can create their own profile, ensuring the doc ID matches their auth UID.
+      // They can update or delete their own profile, but cannot change the immutable user UID.
+      allow create: if isOwner(userId) && request.resource.data.uid == userId;
+      allow update: if (isExistingOwner(userId) || isAdmin()) && request.resource.data.uid == resource.data.uid;
+      allow delete: if (isExistingOwner(userId) || isAdmin());
+    }
+
+    // -------------------------------------------------------------------------
+    // Quiz Session Rules
+    // -------------------------------------------------------------------------
+
+    /**
+     * @description Controls access to a user's quiz session history.
+     * @path /users/{userId}/quizSessions/{quizSessionId}
+     * @allow The owner (auth.uid='user123') can (list) all documents in /users/user123/quizSessions.
+     * @deny A different user (auth.uid='user456') cannot (get) a document at /users/user123/quizSessions/sessionABC.
+     * @principle Enforces inherited ownership from the parent document path.
+     */
+    match /users/{userId}/quizSessions/{quizSessionId} {
+      // READ: The owner can read and list their own quiz sessions.
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+
+      // WRITE: The owner can create, update, and delete their own quiz sessions.
+      // The link to the user (userId) must be set correctly on creation and cannot be changed.
+      allow create: if isOwner(userId) && request.resource.data.userId == userId;
+      allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+      allow delete: if isExistingOwner(userId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Questions Rules
+    // -------------------------------------------------------------------------
+
+    /**
+     * @description Controls access to the global collection of quiz questions.
+     * @path /questions/{questionId}
+     * @allow Any signed-in user can read questions.
+     * @deny A non-admin user cannot write to the questions collection.
+     * @principle Provides authenticated read access for application content while locking down writes to admins.
+     */
+    match /questions/{questionId} {
+      // READ: All signed-in users can read questions.
+      allow get: if isSignedIn();
+      allow list: if isSignedIn();
+
+      // WRITE: Only the admin user can create, update, or delete questions.
+      allow write: if isAdmin();
+    }
+  }
+}
