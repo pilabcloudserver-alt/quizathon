@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Card,
@@ -11,7 +11,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Award, RotateCw, Home, Share2, CheckCircle2, XCircle } from 'lucide-react';
+import { Award, RotateCw, Home, Share2, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import {
   Radar,
   RadarChart,
@@ -23,7 +23,7 @@ import { useUser, useDatabase } from '@/firebase';
 import { ref, push, set, serverTimestamp } from 'firebase/database';
 import Link from 'next/link';
 
-export default function ResultsPage() {
+function ResultsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { user } = useUser();
@@ -141,5 +141,17 @@ export default function ResultsPage() {
         </CardFooter>
       </Card>
     </div>
+  );
+}
+
+export default function ResultsPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex flex-col items-center justify-center h-screen w-full bg-gradient-to-br from-indigo-50 via-white to-purple-50">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      </div>
+    }>
+      <ResultsContent />
+    </Suspense>
   );
 }
