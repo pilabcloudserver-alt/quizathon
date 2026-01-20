@@ -1,0 +1,18 @@
+{
+    "rules": {
+        ".read": "auth != null",
+        ".write": "auth != null && (auth.token.email == 'admin@gmail.com' || auth.uid == 'F4e1tiCEkGSeBY2rmB4LlVwRaha2')",
+        "questions": {
+            "$subject": {
+                ".indexOn": [
+                    "difficulty"
+                ]
+            }
+        },
+        "subjects": {
+            ".indexOn": [
+                "name"
+            ]
+        }
+    }
+}

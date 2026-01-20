@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { FirebaseClientProvider } from '@/firebase';
+import MobileFooter from '@/components/MobileFooter';
 
 export const metadata: Metadata = {
   title: 'Quizathon',
@@ -23,6 +24,7 @@ export default function RootLayout({
       <body className="font-body antialiased h-full">
         <FirebaseClientProvider>
           {children}
+          <MobileFooter />
         </FirebaseClientProvider>
         <Toaster />
       </body>

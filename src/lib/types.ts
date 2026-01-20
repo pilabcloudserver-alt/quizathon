@@ -5,4 +5,5 @@ export type Question = {
   correctAnswer: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
   topic: string;
+  subject?: string;
 };

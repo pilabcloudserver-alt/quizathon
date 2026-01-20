@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 
 interface QuizFlowProps {
   totalQuestions: number;
+  subject?: string;
 }
 
 type AnsweredQuestion = {
@@ -20,7 +21,7 @@ type AnsweredQuestion = {
   isCorrect: boolean;
 };
 
-export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
+export default function QuizFlow({ totalQuestions, subject }: QuizFlowProps) {
   const router = useRouter();
   const firestore = useFirestore();
   const database = useDatabase();
@@ -32,6 +33,7 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
   const [status, setStatus] = useState<'answering' | 'feedback' | 'loading' | 'error'>('loading');
 
   const questionNumber = answeredQuestions.length + 1;
+  const displayQuestionNumber = status === 'feedback' ? answeredQuestions.length : questionNumber;
 
   const fetchQuestion = async (difficulty: 'Easy' | 'Medium' | 'Hard', excludeIds: (string | number)[] = []) => {
     setStatus('loading');
@@ -40,22 +42,74 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
 
       // If we haven't loaded all questions yet, fetch them from RTDB
       if (allQuestions.length === 0) {
-        const snapshot = await get(ref(database, 'questions'));
-        if (snapshot.exists()) {
-          const data = snapshot.val();
-          // RTDB might return an object or array. Ensure it's an array for parsing.
-          const questionsList: Question[] = Array.isArray(data)
-            ? data.map((q, idx) => ({ ...q, id: q.id || idx.toString() }))
-            : Object.keys(data).map(key => ({ ...data[key], id: key }));
+        // Fallback to Firestore if RTDB is empty or if we prefer Firestore query
+        // Check if we should use Firestore query for subject
+        let fsQuestions: Question[] = [];
 
-          setAllQuestions(questionsList);
-          questionsToSelectFrom = questionsList;
-        } else {
-          // Fallback to Firestore if RTDB is empty
-          const querySnapshot = await getDocs(collection(firestore, 'questions'));
-          const fsQuestions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+        try {
+          const sanitizeKey = (key: string) => key.replace(/[.#$/\[\]]/g, "-");
+
+          if (subject) {
+            // Fetch from subcollection: questions/{subject}/items
+            const sanitizedSubject = sanitizeKey(subject);
+            const questionsRef = collection(firestore, 'questions', sanitizedSubject, 'items');
+            const q = query(questionsRef);
+            const querySnapshot = await getDocs(q);
+            fsQuestions = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Question));
+          } else {
+            // For "All", fetching from subcollections requires collectionGroup(firestore, 'items')
+            // But we might conflict with other 'items'. 
+            // For now, let's allow "All" to fall back to RTDB which handles nested structure efficiently.
+            // So we leave fsQuestions as empty array here.
+          }
+        } catch (e) {
+          console.error("Firestore fetch error", e);
+        }
+
+        if (fsQuestions.length > 0) {
           setAllQuestions(fsQuestions);
           questionsToSelectFrom = fsQuestions;
+        } else {
+          // Try RTDB as fallback or primary if Firestore empty
+
+          const sanitizeKey = (key: string) => key.replace(/[.#$/\[\]]/g, "-");
+
+          let rtdbPath = 'questions';
+          if (subject) {
+            rtdbPath = `questions/${sanitizeKey(subject)}`;
+          }
+
+          const snapshot = await get(ref(database, rtdbPath));
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            let questionsList: Question[] = [];
+
+            if (subject) {
+              // If specific subject, data is likely { key: Question, key2: Question }
+              questionsList = Object.keys(data).map(key => ({ ...data[key], id: key }));
+            } else {
+              // If all questions, data might be { subject1: { q1: ... }, subject2: { ... } } or flat { q1: ... }
+              // We attempt to flatten
+              Object.keys(data).forEach(key => {
+                const item = data[key];
+                if (item.question && item.options) {
+                  // It's a question (flat structure)
+                  questionsList.push({ ...item, id: key });
+                } else {
+                  // It's likely a subject container
+                  Object.keys(item).forEach(innerKey => {
+                    const subItem = item[innerKey];
+                    if (subItem.question) {
+                      questionsList.push({ ...subItem, id: innerKey });
+                    }
+                  });
+                }
+              });
+            }
+
+            setAllQuestions(questionsList);
+            questionsToSelectFrom = questionsList;
+          }
         }
       } else {
         questionsToSelectFrom = allQuestions;
@@ -66,6 +120,11 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
         q.difficulty?.toLowerCase() === difficulty.toLowerCase() &&
         !excludeIds.includes(q.id)
       );
+
+      // Filter by subject if provided
+      if (subject) {
+        potentialQuestions = potentialQuestions.filter(q => q.subject === subject);
+      }
 
       // If no questions of desired difficulty, try any difficulty (excluding answered)
       if (potentialQuestions.length === 0) {
@@ -79,7 +138,7 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
       } else {
         // No more unique questions available
         if (answeredQuestions.length > 0) {
-          router.push(`/quiz/results?score=${score}&total=${answeredQuestions.length}`);
+          router.push(`/quiz/results?score=${score}&total=${answeredQuestions.length}&subject=${encodeURIComponent(subject || 'General')}`);
         } else {
           setStatus('error');
         }
@@ -96,7 +155,7 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
 
   useEffect(() => {
     if (questionNumber > totalQuestions && status !== 'loading') {
-      router.push(`/quiz/results?score=${score}&total=${totalQuestions}`);
+      router.push(`/quiz/results?score=${score}&total=${totalQuestions}&subject=${encodeURIComponent(subject || 'General')}`);
     }
   }, [answeredQuestions, totalQuestions, score, router, status, questionNumber]);
 
@@ -125,7 +184,7 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
 
   const handleNextQuestion = async () => {
     if (questionNumber > totalQuestions) {
-      router.push(`/quiz/results?score=${score}&total=${totalQuestions}`);
+      router.push(`/quiz/results?score=${score}&total=${totalQuestions}&subject=${encodeURIComponent(subject || 'General')}`);
       return;
     }
 
@@ -186,7 +245,7 @@ export default function QuizFlow({ totalQuestions }: QuizFlowProps) {
   return (
     <QuestionCard
       question={currentQuestion}
-      questionNumber={questionNumber}
+      questionNumber={displayQuestionNumber}
       totalQuestions={totalQuestions}
       onAnswerSubmit={handleAnswerSubmit}
       onNext={handleNextQuestion}

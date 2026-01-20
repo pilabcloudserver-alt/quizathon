@@ -137,5 +137,19 @@ service cloud.firestore {
       // WRITE: Only the admin user can create, update, or delete questions.
       allow write: if isAdmin();
     }
+    // -------------------------------------------------------------------------
+    // Subject Rules
+    // -------------------------------------------------------------------------
+
+    /**
+     * @description Controls access to the list of subjects.
+     * @path /subjects/{subjectId}
+     * @allow Any signed-in user can read subjects.
+     * @deny A non-admin user cannot write to the subjects collection.
+     */
+    match /subjects/{subjectId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
   }
 }
